@@ -92,9 +92,71 @@ int main(void)
 	if (SUCCEEDED(::CoInitializeEx(nullptr, ::COINIT_APARTMENTTHREADED | ::COINIT_DISABLE_OLE1DDE)))
 	//if (SUCCEEDED(::CoInitializeEx(nullptr, ::COINIT_MULTITHREADED | ::COINIT_DISABLE_OLE1DDE)))
 	{
-		std::vector<std::wstring> filenames;
-		std::wstring path_folder;
-		LoadFileList(path_folder, filenames);
+		::IWICImagingFactory *wic_factory(nullptr);	// __uuidof(IWICImagingFactory)
+		if (SUCCEEDED(::CoCreateInstance(::CLSID_WICImagingFactory, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&wic_factory))))
+		{
+			std::vector<std::wstring> filenames;
+			std::wstring path_folder;
+			LoadFileList(path_folder, filenames);
+
+			for (const auto &filename: filenames)
+			{
+				std::wstring path_src = path_folder + L"\\" + filename;
+
+				// Decode a source image file.
+				::IWICBitmapDecoder *decoder(nullptr);
+				if (SUCCEEDED(wic_factory->CreateDecoderFromFilename(path_src.c_str(), nullptr, GENERIC_READ,
+					::WICDecodeMetadataCacheOnDemand, &decoder)))
+				{
+					// Get a frame.
+					::IWICBitmapFrameDecode *frame(nullptr);
+					if (SUCCEEDED(decoder->GetFrame(0, &frame)))
+					{
+						// Convert the source image frame to 32bit BGRA.
+						::IWICFormatConverter *format_converter(nullptr);
+						if (SUCCEEDED(wic_factory->CreateFormatConverter(&format_converter)))
+						{
+							if (SUCCEEDED(format_converter->Initialize(frame, ::GUID_WICPixelFormat32bppPBGRA, ::WICBitmapDitherTypeNone,
+								nullptr, 0.0, ::WICBitmapPaletteTypeCustom)))
+							{
+								unsigned int width, height;
+								std::vector<unsigned char> buffer;								
+								if (SUCCEEDED(format_converter->GetSize(&width, &height)))
+								{
+									// Set the size with unsigned int instead of ::size_t because ::size_t (== unsigned long) can be wider than unsigned int.
+									unsigned int sz = width * height * 4;
+									buffer.resize(sz);
+									if (SUCCEEDED(format_converter->CopyPixels(nullptr, width * 4, sz, buffer.data())))
+										std::wclog << sz << L" bytes are copied." << std::endl;
+									else
+										::MessageBoxW(nullptr, L"Failed to copy pixels from the source image frame.", L"Error", MB_OK);
+								}									
+								else
+									::MessageBoxW(nullptr, L"Failed to get the size of the source image frame.", L"Error", MB_OK);
+							}
+							else
+								::MessageBoxW(nullptr, L"Failed to convert the source image frame.", L"Error", MB_OK);
+
+							format_converter->Release();
+						}
+						else
+							::MessageBoxW(nullptr, L"Failed to create a format converter.", L"Error", MB_OK);
+
+						frame->Release();
+					}
+					else
+						::MessageBoxW(nullptr, L"Failed to get an image frame from a WIC decoder.", L"Error", MB_OK);
+
+					decoder->Release();
+				}
+				else
+					::MessageBoxW(nullptr, L"Failed to create a decoder for a file.", L"Error", MB_OK);
+			}
+
+			wic_factory->Release();
+		}
+		else
+			::MessageBoxW(nullptr, L"Failed to instantiate a WIC factory.", L"Error", MB_OK);
 
 		::CoUninitialize();
 	}
