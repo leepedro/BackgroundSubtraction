@@ -86,6 +86,60 @@ void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames
 		::MessageBoxW(nullptr, L"Failed to create a file dialog.", L"Error", MB_OK);
 }
 
+void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &data, ::IWICImagingFactory *wic_factory)
+{
+	// Decode a source image file.
+	::IWICBitmapDecoder *decoder(nullptr);
+	if (SUCCEEDED(wic_factory->CreateDecoderFromFilename(pathSrc.c_str(), nullptr, GENERIC_READ,
+		::WICDecodeMetadataCacheOnDemand, &decoder)))
+	{
+		// Get a frame.
+		::IWICBitmapFrameDecode *frame(nullptr);
+		if (SUCCEEDED(decoder->GetFrame(0, &frame)))
+		{
+			// Convert the source image frame to 32bit BGRA.
+			::IWICFormatConverter *format_converter(nullptr);
+			if (SUCCEEDED(wic_factory->CreateFormatConverter(&format_converter)))
+			{
+				if (SUCCEEDED(format_converter->Initialize(frame, ::GUID_WICPixelFormat32bppPBGRA, ::WICBitmapDitherTypeNone,
+					nullptr, 0.0, ::WICBitmapPaletteTypeCustom)))
+				{
+					unsigned int width, height;
+					//std::vector<unsigned char> buffer;
+					if (SUCCEEDED(format_converter->GetSize(&width, &height)))
+					{
+						// Set the size with unsigned int instead of ::size_t because ::size_t (== unsigned long) can be wider than unsigned int.
+						unsigned int sz = width * height * 4;
+						if (data.size() != sz)
+							data.resize(sz);
+						if (SUCCEEDED(format_converter->CopyPixels(nullptr, width * 4, sz, data.data())))
+							std::wclog << sz << L" bytes are copied." << std::endl;
+						else
+							::MessageBoxW(nullptr, L"Failed to copy pixels from the source image frame.", L"Error", MB_OK);
+					}
+					else
+						::MessageBoxW(nullptr, L"Failed to get the size of the source image frame.", L"Error", MB_OK);
+				}
+				else
+					::MessageBoxW(nullptr, L"Failed to convert the source image frame.", L"Error", MB_OK);
+
+				format_converter->Release();
+			}
+			else
+				::MessageBoxW(nullptr, L"Failed to create a format converter.", L"Error", MB_OK);
+
+			frame->Release();
+		}
+		else
+			::MessageBoxW(nullptr, L"Failed to get an image frame from a WIC decoder.", L"Error", MB_OK);
+
+		decoder->Release();
+	}
+	else
+		::MessageBoxW(nullptr, L"Failed to create a decoder for a file.", L"Error", MB_OK);
+
+}
+
 int main(void)
 {
 	// NOTE: if multi-threading option is selected for COM initialization, it can not recognize files in the user library. Don't know why.
@@ -102,55 +156,8 @@ int main(void)
 			for (const auto &filename: filenames)
 			{
 				std::wstring path_src = path_folder + L"\\" + filename;
-
-				// Decode a source image file.
-				::IWICBitmapDecoder *decoder(nullptr);
-				if (SUCCEEDED(wic_factory->CreateDecoderFromFilename(path_src.c_str(), nullptr, GENERIC_READ,
-					::WICDecodeMetadataCacheOnDemand, &decoder)))
-				{
-					// Get a frame.
-					::IWICBitmapFrameDecode *frame(nullptr);
-					if (SUCCEEDED(decoder->GetFrame(0, &frame)))
-					{
-						// Convert the source image frame to 32bit BGRA.
-						::IWICFormatConverter *format_converter(nullptr);
-						if (SUCCEEDED(wic_factory->CreateFormatConverter(&format_converter)))
-						{
-							if (SUCCEEDED(format_converter->Initialize(frame, ::GUID_WICPixelFormat32bppPBGRA, ::WICBitmapDitherTypeNone,
-								nullptr, 0.0, ::WICBitmapPaletteTypeCustom)))
-							{
-								unsigned int width, height;
-								std::vector<unsigned char> buffer;								
-								if (SUCCEEDED(format_converter->GetSize(&width, &height)))
-								{
-									// Set the size with unsigned int instead of ::size_t because ::size_t (== unsigned long) can be wider than unsigned int.
-									unsigned int sz = width * height * 4;
-									buffer.resize(sz);
-									if (SUCCEEDED(format_converter->CopyPixels(nullptr, width * 4, sz, buffer.data())))
-										std::wclog << sz << L" bytes are copied." << std::endl;
-									else
-										::MessageBoxW(nullptr, L"Failed to copy pixels from the source image frame.", L"Error", MB_OK);
-								}									
-								else
-									::MessageBoxW(nullptr, L"Failed to get the size of the source image frame.", L"Error", MB_OK);
-							}
-							else
-								::MessageBoxW(nullptr, L"Failed to convert the source image frame.", L"Error", MB_OK);
-
-							format_converter->Release();
-						}
-						else
-							::MessageBoxW(nullptr, L"Failed to create a format converter.", L"Error", MB_OK);
-
-						frame->Release();
-					}
-					else
-						::MessageBoxW(nullptr, L"Failed to get an image frame from a WIC decoder.", L"Error", MB_OK);
-
-					decoder->Release();
-				}
-				else
-					::MessageBoxW(nullptr, L"Failed to create a decoder for a file.", L"Error", MB_OK);
+				std::vector<unsigned char> data;
+				LoadImageFile(path_src, data, wic_factory);
 			}
 
 			wic_factory->Release();
