@@ -8,6 +8,7 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <deque>
 
 void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames)
 {
@@ -86,6 +87,8 @@ void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames
 		::MessageBoxW(nullptr, L"Failed to create a file dialog.", L"Error", MB_OK);
 }
 
+// Load an image file into a std::vector<byte> where each pixel consists of FOUR continuous elements.
+// This function interprets all compatible image files in 32bit BGRA.
 void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &data, ::IWICImagingFactory *wic_factory)
 {
 	// Decode a source image file.
@@ -140,6 +143,30 @@ void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &data
 
 }
 
+void ComputeMean(const std::deque<std::vector<unsigned char>> &buffer, std::vector<double> &result)
+{
+	// Initialize the output data based on the size of the first vector in the input buffer.
+	::size_t sz = buffer.cbegin()->size();
+	if (result.size() != sz)
+		result.resize(sz, 0.0);
+
+	// Accumulate all vectors in the input buffer to the output data.
+	for (const auto &data : buffer)
+		std::transform(data.cbegin(), data.cend(), result.begin(), result.begin(), std::plus<double>());
+
+	// Divide the output data by the length of the input buffer. 
+	const double NUM_FRMS = static_cast<double>(buffer.size());
+	std::for_each(result.begin(), result.end(), [NUM_FRMS](double &value) { value /= NUM_FRMS; });
+}
+
+void ComputeDiff(const std::vector<unsigned char> &a, const std::vector<double> &b, std::vector<double> &result)
+{
+	if (result.size() != b.size())
+		result.resize(b.size());
+	//std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), std::minus<double>());
+	std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), [](unsigned char a_, double b_) { return std::abs(a_ - b_); });
+}
+
 int main(void)
 {
 	// NOTE: if multi-threading option is selected for COM initialization, it can not recognize files in the user library. Don't know why.
@@ -152,12 +179,27 @@ int main(void)
 			std::vector<std::wstring> filenames;
 			std::wstring path_folder;
 			LoadFileList(path_folder, filenames);
+			const ::size_t MAX_BUFFER_LENGTH(5);
+			std::deque<std::vector<unsigned char>> buffer;		
 
 			for (const auto &filename: filenames)
 			{
+				// Load an image file.
 				std::wstring path_src = path_folder + L"\\" + filename;
 				std::vector<unsigned char> data;
 				LoadImageFile(path_src, data, wic_factory);
+
+				// TODO: Push single-channel images to the frame buffer either by averaging or subtracting frames.
+
+				// Push the data to a buffer.
+				if (buffer.size() == MAX_BUFFER_LENGTH)
+					buffer.pop_front();
+				buffer.push_back(std::move(data));
+
+				// Do something.
+				std::vector<double> avg, diff;
+				ComputeMean(buffer, avg);
+				ComputeDiff(buffer.back(), avg, diff);
 			}
 
 			wic_factory->Release();
