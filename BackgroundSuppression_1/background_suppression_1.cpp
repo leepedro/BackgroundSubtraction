@@ -38,7 +38,7 @@ void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames
 						if (SUCCEEDED(selected_item->GetDisplayName(::SIGDN_FILESYSPATH, &path_folder)))
 						{
 							pathFolder = path_folder;
-							::MessageBoxW(nullptr, path_folder, L"Selected Folder", MB_OK);//
+							//::MessageBoxW(nullptr, path_folder, L"Selected Folder", MB_OK);
 
 							// Collected the list of files under the selected folder.
 							::WIN32_FIND_DATAW find_data;
@@ -92,11 +92,11 @@ void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames
 
 // Load an image file into a std::vector<byte> where each pixel consists of FOUR continuous elements.
 // This function interprets all compatible image files in 32bit BGRA.
-void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &data, ::IWICImagingFactory *wic_factory)
+void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst, ::IWICImagingFactory *wicFactory)
 {
 	// Decode a source image file.
 	::IWICBitmapDecoder *decoder(nullptr);
-	if (SUCCEEDED(wic_factory->CreateDecoderFromFilename(pathSrc.c_str(), nullptr, GENERIC_READ,
+	if (SUCCEEDED(wicFactory->CreateDecoderFromFilename(pathSrc.c_str(), nullptr, GENERIC_READ,
 		::WICDecodeMetadataCacheOnDemand, &decoder)))
 	{
 		// Get a frame.
@@ -105,22 +105,19 @@ void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &data
 		{
 			// Convert the source image frame to 32bit BGRA.
 			::IWICFormatConverter *format_converter(nullptr);
-			if (SUCCEEDED(wic_factory->CreateFormatConverter(&format_converter)))
+			if (SUCCEEDED(wicFactory->CreateFormatConverter(&format_converter)))
 			{
 				if (SUCCEEDED(format_converter->Initialize(frame, ::GUID_WICPixelFormat32bppPBGRA, ::WICBitmapDitherTypeNone,
 					nullptr, 0.0, ::WICBitmapPaletteTypeCustom)))
 				{
 					unsigned int width, height;
-					//std::vector<unsigned char> buffer;
 					if (SUCCEEDED(format_converter->GetSize(&width, &height)))
 					{
 						// Set the size with unsigned int instead of ::size_t because ::size_t (== unsigned long) can be wider than unsigned int.
 						unsigned int sz = width * height * 4;
-						if (data.size() != sz)
-							data.resize(sz);
-						if (SUCCEEDED(format_converter->CopyPixels(nullptr, width * 4, sz, data.data())))
-							std::wclog << sz << L" bytes are copied." << std::endl;
-						else
+						if (dst.size() != sz)
+							dst.resize(sz);
+						if (FAILED(format_converter->CopyPixels(nullptr, width * 4, sz, dst.data())))
 							::MessageBoxW(nullptr, L"Failed to copy pixels from the source image frame.", L"Error", MB_OK);
 					}
 					else
@@ -143,7 +140,15 @@ void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &data
 	}
 	else
 		::MessageBoxW(nullptr, L"Failed to create a decoder for a file.", L"Error", MB_OK);
+}
 
+void Slice(const std::vector<unsigned char> &src, std::vector<float> &dst)
+{
+	if (dst.size() != (src.size() / 4))
+		dst.resize(src.size() / 4, 0.0f);
+	auto it_dst = dst.begin();
+	for (auto it_src = src.cbegin(); it_src != src.cend(); it_src += 4)
+		*it_dst++ = *it_src;	// B
 }
 
 void BGRAtoGray(const std::vector<unsigned char> &src, std::vector<float> &dst)
@@ -219,6 +224,60 @@ void ComputeDiff(const std::vector<float> &a, const std::vector<float> &b, std::
 	std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), [](float a_, float b_) { return std::abs(a_ - b_); });
 }
 
+// Load image files, and do nothing else.
+void Test0(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, const std::vector<std::wstring> &filenames)
+{
+	std::vector<unsigned char> src_data;
+	std::vector<float> data;
+	for (const auto &filename : filenames)
+	{
+		// Load an image file.
+		std::wstring path_src = pathFolder + L"\\" + filename;
+		LoadImageFile(path_src, src_data, wicFactory);
+		Slice(src_data, data);
+		//BGRAtoGray(src_data, data);
+	}
+}
+
+// 
+void Test1(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, const std::vector<std::wstring> &filenames)
+{
+	const ::size_t MAX_BUFFER_LENGTH(5);
+	std::deque<std::vector<float>> buffer;
+	std::vector<unsigned char> src_data;
+	std::vector<float> avg, diff;
+	for (const auto &filename : filenames)
+	{
+		// Load an image file.
+		std::wstring path_src = pathFolder + L"\\" + filename;
+		//std::vector<unsigned char> src_data;
+		LoadImageFile(path_src, src_data, wicFactory);
+
+		std::vector<float> data;
+		BGRAtoGray(src_data, data);
+
+		// Push the data to a buffer.
+		if (buffer.size() == MAX_BUFFER_LENGTH)
+			buffer.pop_front();
+		buffer.push_back(std::move(data));
+
+		// Do something.
+		//std::vector<float> avg, diff;
+		ComputeMean(buffer, avg);
+		ComputeDiff(buffer.back(), avg, diff);
+	}
+
+}
+
+// Report total computation time as a log message and a message box.
+void ReportTime(::clock_t tStart, ::clock_t tEnd)
+{
+	auto sec_total = static_cast<double>(tEnd - tStart) / CLOCKS_PER_SEC;
+	std::wstring msg_time = L"Total computation time = " + std::to_wstring(sec_total) + L" (sec)";
+	std::wclog << msg_time << std::endl;
+	::MessageBoxW(nullptr, msg_time.c_str(), L"Completed", MB_OK | MB_ICONINFORMATION);
+}
+
 int main(void)
 {
 	// NOTE: if multi-threading option is selected for COM initialization, it can not recognize files in the user library. Don't know why.
@@ -233,35 +292,17 @@ int main(void)
 			std::wstring path_folder;
 			LoadFileList(path_folder, filenames);
 
-			auto t_start = ::clock();
-			const ::size_t MAX_BUFFER_LENGTH(5);
-			std::deque<std::vector<float>> buffer;		
-			std::vector<unsigned char> src_data;
-			std::vector<float> avg, diff;
-			for (const auto &filename: filenames)
-			{
-				// Load an image file.
-				std::wstring path_src = path_folder + L"\\" + filename;
-				//std::vector<unsigned char> src_data;
-				LoadImageFile(path_src, src_data, wic_factory);
+			::clock_t t_start, t_end;
 
-				std::vector<float> data;
-				BGRAtoGray(src_data, data);
+			t_start = ::clock();
+			Test0(wic_factory, path_folder, filenames);			
+			t_end = ::clock();
+			ReportTime(t_start, t_end);
 
-				// Push the data to a buffer.
-				if (buffer.size() == MAX_BUFFER_LENGTH)
-					buffer.pop_front();
-				buffer.push_back(std::move(data));
-
-				// Do something.
-				//std::vector<float> avg, diff;
-				ComputeMean(buffer, avg);
-				ComputeDiff(buffer.back(), avg, diff);
-			}
-
-			auto t_end = ::clock();
-			auto sec_total = static_cast<double>(t_end - t_start) / CLOCKS_PER_SEC;
-			std::clog << "Total computation time = " << sec_total << " (sec)" << std::endl;
+			t_start = ::clock();
+			Test1(wic_factory, path_folder, filenames);
+			t_end = ::clock();
+			ReportTime(t_start, t_end);
 
 			wic_factory->Release();
 		}
