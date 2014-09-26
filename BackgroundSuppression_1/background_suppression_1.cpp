@@ -142,19 +142,29 @@ void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst,
 		::MessageBoxW(nullptr, L"Failed to create a decoder for a file.", L"Error", MB_OK);
 }
 
-void Slice(const std::vector<unsigned char> &src, std::vector<float> &dst)
+template <typename T1, typename T2>
+void Slice(T1 itBeginSrc, T2 itBeginDst, T2 itEndDst, ::size_t stride)
+{
+	auto it_src = itBeginSrc;
+	for (T2 it_dst = itBeginDst; it_dst != itEndDst; ++it_dst, it_src += stride)
+		*it_dst = *it_src;
+}
+
+void BGRAtoGray_(const std::vector<unsigned char> &src, std::vector<float> &dst)
 {
 	if (dst.size() != (src.size() / 4))
-		dst.resize(src.size() / 4, 0.0f);
-	auto it_dst = dst.begin();
-	for (auto it_src = src.cbegin(); it_src != src.cend(); it_src += 4)
-		*it_dst++ = *it_src;	// B
+		dst.resize(src.size() / 4);
+	Slice(src.cbegin(), dst.begin(), dst.end(), 4);
+	//auto it_dst = dst.begin();
+	//for (auto it_src = src.cbegin(); it_src != src.cend(); it_src += 4)
+	//	*it_dst++ = *it_src;	// B
 }
+
 
 void BGRAtoGray(const std::vector<unsigned char> &src, std::vector<float> &dst)
 {
 	if (dst.size() != (src.size() / 4))
-		dst.resize(src.size() / 4, 0.0f);
+		dst.resize(src.size() / 4);
 
 	auto it_src = src.cbegin();
 	for (auto it_dst = dst.begin(); it_dst != dst.end(); ++it_dst)
@@ -234,8 +244,7 @@ void Test0(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 		// Load an image file.
 		std::wstring path_src = pathFolder + L"\\" + filename;
 		LoadImageFile(path_src, src_data, wicFactory);
-		Slice(src_data, data);
-		//BGRAtoGray(src_data, data);
+		BGRAtoGray_(src_data, data);
 	}
 }
 
@@ -245,16 +254,14 @@ void Test1(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 	const ::size_t MAX_BUFFER_LENGTH(5);
 	std::deque<std::vector<float>> buffer;
 	std::vector<unsigned char> src_data;
-	std::vector<float> avg, diff;
+	std::vector<float> data, avg, diff;
 	for (const auto &filename : filenames)
 	{
 		// Load an image file.
 		std::wstring path_src = pathFolder + L"\\" + filename;
 		//std::vector<unsigned char> src_data;
-		LoadImageFile(path_src, src_data, wicFactory);
-
-		std::vector<float> data;
-		BGRAtoGray(src_data, data);
+		LoadImageFile(path_src, src_data, wicFactory);		
+		BGRAtoGray_(src_data, data);
 
 		// Push the data to a buffer.
 		if (buffer.size() == MAX_BUFFER_LENGTH)
