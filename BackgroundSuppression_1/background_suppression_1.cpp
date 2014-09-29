@@ -12,6 +12,7 @@
 #include <iostream>
 #include <algorithm>
 #include <deque>
+#include <numeric>
 
 void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames)
 {
@@ -92,7 +93,7 @@ void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames
 
 // Load an image file into a std::vector<byte> where each pixel consists of FOUR continuous elements.
 // This function interprets all compatible image files in 32bit BGRA.
-void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst, ::IWICImagingFactory *wicFactory)
+void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst, ::size_t &width, ::size_t &height, ::IWICImagingFactory *wicFactory)
 {
 	// Decode a source image file.
 	::IWICBitmapDecoder *decoder(nullptr);
@@ -110,15 +111,17 @@ void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst,
 				if (SUCCEEDED(format_converter->Initialize(frame, ::GUID_WICPixelFormat32bppPBGRA, ::WICBitmapDitherTypeNone,
 					nullptr, 0.0, ::WICBitmapPaletteTypeCustom)))
 				{
-					unsigned int width, height;
-					if (SUCCEEDED(format_converter->GetSize(&width, &height)))
+					unsigned int w, h;
+					if (SUCCEEDED(format_converter->GetSize(&w, &h)))
 					{
 						// Set the size with unsigned int instead of ::size_t because ::size_t (== unsigned long) can be wider than unsigned int.
-						unsigned int sz = width * height * 4;
+						unsigned int sz = w * h * 4;
 						if (dst.size() != sz)
 							dst.resize(sz);
-						if (FAILED(format_converter->CopyPixels(nullptr, width * 4, sz, dst.data())))
+						if (FAILED(format_converter->CopyPixels(nullptr, w * 4, sz, dst.data())))
 							::MessageBoxW(nullptr, L"Failed to copy pixels from the source image frame.", L"Error", MB_OK);
+						width = w;
+						height = h;
 					}
 					else
 						::MessageBoxW(nullptr, L"Failed to get the size of the source image frame.", L"Error", MB_OK);
@@ -142,64 +145,145 @@ void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst,
 		::MessageBoxW(nullptr, L"Failed to create a decoder for a file.", L"Error", MB_OK);
 }
 
-template <typename T1, typename T2>
-void Slice(T1 itBeginSrc, T2 itBeginDst, T2 itEndDst, ::size_t stride)
+void SaveImageFile(const std::wstring &pathDst, std::vector<unsigned char> &src, unsigned int width, unsigned int height, ::IWICImagingFactory *wicFactory)
 {
-	auto it_src = itBeginSrc;
-	for (T2 it_dst = itBeginDst; it_dst != itEndDst; ++it_dst, it_src += stride)
-		*it_dst = *it_src;
+	::IWICStream *stream(nullptr);
+	if (SUCCEEDED(wicFactory->CreateStream(&stream)))
+	{
+		if (SUCCEEDED(stream->InitializeFromFilename(pathDst.c_str(), GENERIC_WRITE)))
+		{
+			::IWICBitmapEncoder *encoder(nullptr);
+			if (SUCCEEDED(wicFactory->CreateEncoder(::GUID_ContainerFormatBmp, nullptr, &encoder)))
+			{
+				if (SUCCEEDED(encoder->Initialize(stream, ::WICBitmapEncoderNoCache)))
+				{
+					::IWICBitmapFrameEncode *bitmapFrame(nullptr);
+					//::IPropertyBag2 *propertybag(nullptr);
+					if (SUCCEEDED(encoder->CreateNewFrame(&bitmapFrame, nullptr)))
+					{
+						if (SUCCEEDED(bitmapFrame->Initialize(nullptr)))
+						{
+							::WICPixelFormatGUID format_guid = ::GUID_WICPixelFormat24bppBGR;
+							if (SUCCEEDED(bitmapFrame->SetPixelFormat(&format_guid)))
+							{
+								if (::IsEqualGUID(format_guid, ::GUID_WICPixelFormat24bppBGR))
+								{
+									unsigned int stride = (width * 24 + 7) / 8;
+									unsigned int sz_buffer = height * stride;
+									// TODO: Following line fails.
+									if (SUCCEEDED(bitmapFrame->WritePixels(height, stride, sz_buffer, src.data())))
+									{
+										if (SUCCEEDED(bitmapFrame->Commit()))
+										{
+											if (FAILED(encoder->Commit()))
+												::MessageBoxW(nullptr, L"Failed to commit an encoder.", L"Error", MB_OK);
+										}
+										else
+											::MessageBoxW(nullptr, L"Failed to commit a frame.", L"Error", MB_OK);
+									}
+									else
+										::MessageBoxW(nullptr, L"Failed to write pixels.", L"Error", MB_OK);
+								}
+								else
+									::MessageBoxW(nullptr, L"8bit gray pixel format is not supported.", L"Error", MB_OK);
+							}
+							else
+								::MessageBoxW(nullptr, L"Failed to set pixel format.", L"Error", MB_OK);
+						}
+						else
+							::MessageBoxW(nullptr, L"Failed to initialize a frame.", L"Error", MB_OK);
+
+						bitmapFrame->Release();
+						//propertybag->Release();
+					}
+					else
+						::MessageBoxW(nullptr, L"Failed to create a frame.", L"Error", MB_OK);
+				}
+				else
+					::MessageBoxW(nullptr, L"Failed to initialize an encoder for a stream.", L"Error", MB_OK);
+
+				encoder->Release();
+			}
+			else
+				::MessageBoxW(nullptr, L"Failed to create an encoder.", L"Error", MB_OK);
+		}
+		else
+			::MessageBoxW(nullptr, L"Failed to initialize a stream from filename.", L"Error", MB_OK);
+
+		stream->Release();
+	}
+	else
+		::MessageBoxW(nullptr, L"Failed to create a stream for a file.", L"Error", MB_OK);
 }
 
+// Converts byte BGRA image into a single-channel image by copying only blue channel. (kind of cheating)
 void BGRAtoGray_(const std::vector<unsigned char> &src, std::vector<float> &dst)
 {
 	if (dst.size() != (src.size() / 4))
 		dst.resize(src.size() / 4);
-	Slice(src.cbegin(), dst.begin(), dst.end(), 4);
-	//auto it_dst = dst.begin();
-	//for (auto it_src = src.cbegin(); it_src != src.cend(); it_src += 4)
-	//	*it_dst++ = *it_src;	// B
+
+	auto it_src = src.cbegin();
+	for (auto it_dst = dst.begin(), it_end = dst.end(); it_dst != it_end; ++it_dst, it_src += 4)
+		*it_dst = *it_src;	// B
 }
 
-
+// Converts byte BGRA image into a single-channel image by averaging BGR channels. (quite expensive)
 void BGRAtoGray(const std::vector<unsigned char> &src, std::vector<float> &dst)
 {
 	if (dst.size() != (src.size() / 4))
 		dst.resize(src.size() / 4);
 
 	auto it_src = src.cbegin();
-	for (auto it_dst = dst.begin(); it_dst != dst.end(); ++it_dst)
+	// NOTE: Following logic using std::for_each() runs faster than for loop. (GOOD!)
+	std::for_each(dst.begin(), dst.end(), [&it_src](float &value)
 	{
-		*it_dst = *it_src++;	// B
-		*it_dst += *it_src++;	// G
-		*it_dst += *it_src++;	// R
-		*it_dst /= 3.0f;
+		value = *it_src++;		// B
+		value += *it_src++;		// G
+		value += *it_src++;		// R
+		value /= 3;
 		++it_src;				// Skip A
-	}
-	//std::for_each(dst.begin(), dst.end(), [&it_src](double &value)
+	});
+
+	//for (auto it_dst = dst.begin(), it_end = dst.end(); it_dst != it_end; ++it_dst)
 	//{
-	//	value = *it_src++;		// B
-	//	value += *it_src++;		// G
-	//	value += *it_src++;		// R
-	//	value /= 3.0;
+	//	*it_dst = *it_src++;	// B
+	//	*it_dst += *it_src++;	// G
+	//	*it_dst += *it_src++;	// R
+	//	*it_dst /= 3;
 	//	++it_src;				// Skip A
-	//});	
+	//}
 }
 
-void ComputeMean(const std::deque<std::vector<unsigned char>> &buffer, std::vector<double> &result)
+void GrayToBGR(const std::vector<float> &src, std::vector<unsigned char> &dst)
 {
-	// Initialize the output data based on the size of the first vector in the input buffer.
-	::size_t sz = buffer.cbegin()->size();
-	if (result.size() != sz)
-		result.resize(sz, 0.0);
+	if (dst.size() != (src.size() * 3))
+		dst.resize(src.size() * 3);
 
-	// Accumulate all vectors in the input buffer to the output data.
-	for (const auto &data : buffer)
-		std::transform(data.cbegin(), data.cend(), result.begin(), result.begin(), std::plus<double>());
-
-	// Divide the output data by the length of the input buffer. 
-	const double NUM_FRMS = static_cast<double>(buffer.size());
-	std::for_each(result.begin(), result.end(), [NUM_FRMS](double &value) { value /= NUM_FRMS; });
+	auto it_dst = dst.begin();
+	std::for_each(src.cbegin(), src.cend(), [&it_dst](float value)
+	{
+		auto temp = static_cast<unsigned char>(value);
+		*it_dst++ = temp;
+		*it_dst++ = temp;
+		*it_dst++ = temp;
+	});
 }
+
+//void ComputeMean(const std::deque<std::vector<unsigned char>> &buffer, std::vector<double> &result)
+//{
+//	// Initialize the output data based on the size of the first vector in the input buffer.
+//	::size_t sz = buffer.cbegin()->size();
+//	if (result.size() != sz)
+//		result.resize(sz, 0.0);
+//
+//	// Accumulate all vectors in the input buffer to the output data.
+//	for (const auto &data : buffer)
+//		std::transform(data.cbegin(), data.cend(), result.begin(), result.begin(), std::plus<double>());
+//
+//	// Divide the output data by the length of the input buffer. 
+//	const double NUM_FRMS = static_cast<double>(buffer.size());
+//	std::for_each(result.begin(), result.end(), [NUM_FRMS](double &value) { value /= NUM_FRMS; });
+//}
 
 void ComputeMean(const std::deque<std::vector<float>> &buffer, std::vector<float> &result)
 {
@@ -218,13 +302,13 @@ void ComputeMean(const std::deque<std::vector<float>> &buffer, std::vector<float
 }
 
 
-void ComputeDiff(const std::vector<unsigned char> &a, const std::vector<double> &b, std::vector<double> &result)
-{
-	if (result.size() != b.size())
-		result.resize(b.size());
-	//std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), std::minus<double>());
-	std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), [](unsigned char a_, double b_) { return std::abs(a_ - b_); });
-}
+//void ComputeDiff(const std::vector<unsigned char> &a, const std::vector<double> &b, std::vector<double> &result)
+//{
+//	if (result.size() != b.size())
+//		result.resize(b.size());
+//	//std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), std::minus<double>());
+//	std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), [](unsigned char a_, double b_) { return std::abs(a_ - b_); });
+//}
 
 void ComputeDiff(const std::vector<float> &a, const std::vector<float> &b, std::vector<float> &result)
 {
@@ -234,17 +318,80 @@ void ComputeDiff(const std::vector<float> &a, const std::vector<float> &b, std::
 	std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), [](float a_, float b_) { return std::abs(a_ - b_); });
 }
 
+void ComputeDiffSq(const std::vector<float> &a, const std::vector<float> &b, std::vector<float> &result)
+{
+	if (result.size() != a.size())
+		result.resize(a.size());
+	std::transform(a.cbegin(), a.cend(), b.cbegin(), result.begin(), [](float a_, float b_) { auto temp = a_ - b_; return temp * temp; });
+}
+
+void ComputeVar(const std::deque<std::vector<float>> &buffer, const std::vector<float> &mean, std::vector<float> &result)
+{
+	// Initialize the output data based on the size of the mean vector.
+	if (result.size() != mean.size())
+		result.resize(mean.size(), 0.0f);
+
+	// Accumulate the squared difference along all vectors in the input buffer.
+	std::vector<float> temp;
+	for (const auto &data : buffer)
+	{
+		ComputeDiffSq(data, mean, temp);
+		std::transform(temp.cbegin(), temp.cend(), result.begin(), result.begin(), std::plus<float>());
+	}
+
+	// Divide the output data by the length of the input buffer. 
+	const float NUM_FRMS = static_cast<float>(buffer.size());
+	std::for_each(result.begin(), result.end(), [NUM_FRMS](float &value) { value /= NUM_FRMS; });
+}
+
+void ComputeStd(const std::deque<std::vector<float>> &buffer, const std::vector<float> &mean, std::vector<float> &result)
+{
+	// Initialize the output data based on the size of the mean vector.
+	if (result.size() != mean.size())
+		result.resize(mean.size(), 0.0f);
+
+	// Accumulate the squared difference along all vectors in the input buffer.
+	std::vector<float> temp;
+	for (const auto &data : buffer)
+	{
+		ComputeDiffSq(data, mean, temp);
+		std::transform(temp.cbegin(), temp.cend(), result.begin(), result.begin(), std::plus<float>());
+	}
+
+	// Divide the output data by the length of the input buffer. 
+	const float NUM_FRMS = static_cast<float>(buffer.size());
+	std::for_each(result.begin(), result.end(), [NUM_FRMS](float &value) { value = std::sqrtf(value / NUM_FRMS); });
+}
+
+void Mark(const std::vector<float> &data, const std::vector<float> &mean, const std::vector<float> &std, float th, std::vector<unsigned char> &result)
+{
+	// Initialize the output data based on the size of the mean vector.
+	if (result.size() != data.size())
+		result.resize(data.size());
+
+	// Mark elements.
+	auto it_data = data.cbegin();
+	auto it_mean = mean.cbegin();
+	auto it_std = std.cbegin();
+	for (auto it_dst = result.begin(), it_end = result.end(); it_dst != it_end; ++it_dst, ++it_data, ++it_mean, ++it_std)
+		*it_dst = (std::abs(*it_data - *it_mean) / *it_std) > th ? 0xFF : 0x00;
+}
+
 // Load image files, and do nothing else.
 void Test0(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, const std::vector<std::wstring> &filenames)
 {
 	std::vector<unsigned char> src_data;
 	std::vector<float> data;
+	::size_t width, height;
 	for (const auto &filename : filenames)
 	{
 		// Load an image file.
 		std::wstring path_src = pathFolder + L"\\" + filename;
-		LoadImageFile(path_src, src_data, wicFactory);
+		LoadImageFile(path_src, src_data, width, height, wicFactory);
 		BGRAtoGray_(src_data, data);
+		std::vector<unsigned char> out_temp;
+		GrayToBGR(data, out_temp);
+		SaveImageFile(L"Test.bmp", out_temp, static_cast<unsigned int>(width), static_cast<unsigned int>(height), wicFactory);
 	}
 }
 
@@ -253,14 +400,15 @@ void Test1(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 {
 	const ::size_t MAX_BUFFER_LENGTH(5);
 	std::deque<std::vector<float>> buffer;
-	std::vector<unsigned char> src_data;
-	std::vector<float> data, avg, diff;
+	::size_t width, height;
+	std::vector<unsigned char> src_data, dst;
+	std::vector<float> avg, std;
 	for (const auto &filename : filenames)
 	{
 		// Load an image file.
 		std::wstring path_src = pathFolder + L"\\" + filename;
-		//std::vector<unsigned char> src_data;
-		LoadImageFile(path_src, src_data, wicFactory);		
+		LoadImageFile(path_src, src_data, width, height, wicFactory);
+		std::vector<float> data;
 		BGRAtoGray_(src_data, data);
 
 		// Push the data to a buffer.
@@ -269,9 +417,9 @@ void Test1(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 		buffer.push_back(std::move(data));
 
 		// Do something.
-		//std::vector<float> avg, diff;
 		ComputeMean(buffer, avg);
-		ComputeDiff(buffer.back(), avg, diff);
+		ComputeStd(buffer, avg, std);
+		Mark(buffer.back(), avg, std, 3.5f, dst);
 	}
 
 }
