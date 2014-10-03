@@ -144,9 +144,12 @@ int MainWindow::DisplayImages(void)
 		// Load an image file.
 		std::wstring path_src = this->folder + L"\\" + filename;
 		if (LoadImageFile(path_src, dst, width, height))
+		{
 			::InvalidateRect(this->hWnd, nullptr, TRUE);
-		::Sleep(10);
-		++count;
+			::UpdateWindow(this->hWnd);
+			::Sleep(10);
+			++count;
+		}			
 	}
 	return count;
 }
