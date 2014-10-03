@@ -1,3 +1,6 @@
+// Standard C header files.
+#include <ctime>
+
 // Standard C++ header files.
 #include <vector>
 #include <iostream>
@@ -85,6 +88,15 @@ void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames
 		::MessageBoxW(nullptr, L"Failed to create a file dialog.", L"Error", MB_OK);
 }
 
+// Report total computation time as a log message and a message box.
+void ReportTime(::clock_t tStart, ::clock_t tEnd)
+{
+	auto sec_total = static_cast<double>(tEnd - tStart) / CLOCKS_PER_SEC;
+	std::wstring msg_time = L"Total computation time = " + std::to_wstring(sec_total) + L" (sec)";
+	std::wclog << msg_time << std::endl;
+	::MessageBoxW(nullptr, msg_time.c_str(), L"Completed", MB_OK | MB_ICONINFORMATION);
+}
+
 
 MainWindow::~MainWindow(void)
 {
@@ -94,16 +106,20 @@ MainWindow::~MainWindow(void)
 
 LRESULT MainWindow::HandleMessage(unsigned int msg, WPARAM wParam, LPARAM lParam)
 {
+	::clock_t t_start, t_end;
 	switch (msg)
 	{
 	case WM_COMMAND:
 		switch (LOWORD(wParam))
 		{
 		case ID_FILE_OPEN:
-		{
+		{			
+			t_start = ::clock();
 			auto count = this->DisplayImages();
-			std::wstring msg = L"Total " + std::to_wstring(count) + L" files.";
-			::MessageBoxW(nullptr, msg.c_str(), L"Completed", MB_OK | MB_ICONINFORMATION);
+			t_end = ::clock();
+			::ReportTime(t_start, t_end);
+			//std::wstring msg = L"Total " + std::to_wstring(count) + L" files.";
+			//::MessageBoxW(nullptr, msg.c_str(), L"Completed", MB_OK | MB_ICONINFORMATION);
 		}
 			break;
 		case ID_FILE_EXIT:
@@ -185,7 +201,8 @@ bool MainWindow::LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned
 								width = w;
 								height = h;
 
-								// Set the size with unsigned int instead of ::size_t because ::size_t (== unsigned long) can be wider than unsigned int.
+								// Set the size with unsigned int instead of ::size_t
+								// because ::size_t (== unsigned long) can be wider than unsigned int.
 								unsigned int sz = w * h * 4;
 								if (dst.size() != sz)
 									dst.resize(sz);
@@ -277,7 +294,7 @@ void MainWindow::OnPaint(void)
 		{
 			this->RenderTarget->BeginDraw();
 
-			// If Direct2D bitmap had been released due to divice loss, recreate it
+			// If Direct2D bitmap had been released due to device loss, recreate it
 			// from source bitmap.
 			HRESULT result(S_OK);
 			if (this->BmpSrc != nullptr && this->Bmp == nullptr)

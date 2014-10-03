@@ -105,8 +105,6 @@ public:
 protected:
 	int DisplayImages(void);
 	bool LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst, ::size_t &width, ::size_t &height);
-	//bool CreateD2DBmpFromFile(void);
-	//bool LocateImagefile(std::wstring &path);
 
 	// Resource handlers.
 	bool CreateResouces(void);	// device independent resources
@@ -132,7 +130,6 @@ protected:
 	//std::deque<std::vector<float>> buffer;
 	std::vector<std::wstring> filenames;
 	std::wstring folder;
-
 };
 
 #endif

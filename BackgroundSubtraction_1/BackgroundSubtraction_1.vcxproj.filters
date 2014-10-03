@@ -15,7 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="background_suppression_1.cpp">
+    <ClCompile Include="backgroundSubtraction_1.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

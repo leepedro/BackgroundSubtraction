@@ -1,8 +1,3 @@
-// Windows header files.
-#include <Windows.h>
-#include <wincodec.h>
-#include <ShlObj.h>
-
 // Standard C header files.
 #include <ctime>
 
@@ -13,6 +8,11 @@
 #include <algorithm>
 #include <deque>
 #include <numeric>
+
+// Windows header files.
+#include <Windows.h>
+#include <wincodec.h>
+#include <ShlObj.h>
 
 void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames)
 {
@@ -145,6 +145,7 @@ void LoadImageFile(const std::wstring &pathSrc, std::vector<unsigned char> &dst,
 		::MessageBoxW(nullptr, L"Failed to create a decoder for a file.", L"Error", MB_OK);
 }
 
+// This function fails for an unknown reason.
 void SaveImageFile(const std::wstring &pathDst, std::vector<unsigned char> &src, unsigned int width, unsigned int height, ::IWICImagingFactory *wicFactory)
 {
 	::IWICStream *stream(nullptr);
@@ -158,7 +159,6 @@ void SaveImageFile(const std::wstring &pathDst, std::vector<unsigned char> &src,
 				if (SUCCEEDED(encoder->Initialize(stream, ::WICBitmapEncoderNoCache)))
 				{
 					::IWICBitmapFrameEncode *bitmapFrame(nullptr);
-					//::IPropertyBag2 *propertybag(nullptr);
 					if (SUCCEEDED(encoder->CreateNewFrame(&bitmapFrame, nullptr)))
 					{
 						if (SUCCEEDED(bitmapFrame->Initialize(nullptr)))
@@ -194,7 +194,6 @@ void SaveImageFile(const std::wstring &pathDst, std::vector<unsigned char> &src,
 							::MessageBoxW(nullptr, L"Failed to initialize a frame.", L"Error", MB_OK);
 
 						bitmapFrame->Release();
-						//propertybag->Release();
 					}
 					else
 						::MessageBoxW(nullptr, L"Failed to create a frame.", L"Error", MB_OK);
