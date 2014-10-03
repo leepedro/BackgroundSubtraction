@@ -383,15 +383,15 @@ void Test0(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 	std::vector<unsigned char> src_data;
 	std::vector<float> data;
 	::size_t width, height;
+	std::vector<unsigned char> out_temp;
 	for (const auto &filename : filenames)
 	{
 		// Load an image file.
 		std::wstring path_src = pathFolder + L"\\" + filename;
 		LoadImageFile(path_src, src_data, width, height, wicFactory);
-		BGRAtoGray_(src_data, data);
-		std::vector<unsigned char> out_temp;
-		GrayToBGR(data, out_temp);
-		SaveImageFile(L"Test.bmp", out_temp, static_cast<unsigned int>(width), static_cast<unsigned int>(height), wicFactory);
+		BGRAtoGray_(src_data, data);		
+		//GrayToBGR(data, out_temp);
+		//SaveImageFile(L"Test.bmp", out_temp, static_cast<unsigned int>(width), static_cast<unsigned int>(height), wicFactory);
 	}
 }
 
