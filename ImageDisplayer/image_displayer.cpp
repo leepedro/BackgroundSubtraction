@@ -5,6 +5,7 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <thread>
 
 // Windows header files.
 #include <ShlObj.h>
@@ -115,6 +116,9 @@ LRESULT MainWindow::HandleMessage(unsigned int msg, WPARAM wParam, LPARAM lParam
 		case ID_FILE_OPEN:
 		{			
 			t_start = ::clock();
+			// TODO: launch the logic as a separate thread.
+			//std::thread th1(&MainWindow::DisplayImages, MainWindow());
+			//th1.join();
 			auto count = this->DisplayImages();
 			t_end = ::clock();
 			::ReportTime(t_start, t_end);
@@ -333,6 +337,7 @@ void MainWindow::OnSize(LPARAM lParam)
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, wchar_t *cmdLine, int cmdShow)
 {
 	// Initialize COM library.
+	//if (SUCCEEDED(::CoInitializeEx(nullptr, ::COINIT_MULTITHREADED | ::COINIT_DISABLE_OLE1DDE)))
 	if (SUCCEEDED(::CoInitializeEx(nullptr, ::COINIT_APARTMENTTHREADED | ::COINIT_DISABLE_OLE1DDE)))
 	{
 		// NOTE: Wrap MainWindow object with {}, so all member sources are already released
