@@ -13,6 +13,7 @@
 #include <Windows.h>
 #include <wincodec.h>
 #include <ShlObj.h>
+#include <Shlwapi.h>
 
 void LoadFileList(std::wstring &pathFolder, std::vector<std::wstring> &filenames)
 {
@@ -168,21 +169,25 @@ void SaveImageFile(const std::wstring &pathDst, std::vector<unsigned char> &src,
 							{
 								if (::IsEqualGUID(format_guid, ::GUID_WICPixelFormat24bppBGR))
 								{
-									unsigned int stride = (width * 24 + 7) / 8;
-									unsigned int sz_buffer = height * stride;
-									// TODO: Following line fails.
-									if (SUCCEEDED(bitmapFrame->WritePixels(height, stride, sz_buffer, src.data())))
-									{
-										if (SUCCEEDED(bitmapFrame->Commit()))
+									if (SUCCEEDED(bitmapFrame->SetSize(width, height)))
+									{	// NOTE: This works for only 24bit image format.
+										unsigned int stride = (width * 24 + 7) / 8;
+										unsigned int sz_buffer = height * stride;
+										if (SUCCEEDED(bitmapFrame->WritePixels(height, stride, sz_buffer, src.data())))
 										{
-											if (FAILED(encoder->Commit()))
-												::MessageBoxW(nullptr, L"Failed to commit an encoder.", L"Error", MB_OK);
+											if (SUCCEEDED(bitmapFrame->Commit()))
+											{
+												if (FAILED(encoder->Commit()))
+													::MessageBoxW(nullptr, L"Failed to commit an encoder.", L"Error", MB_OK);
+											}
+											else
+												::MessageBoxW(nullptr, L"Failed to commit a frame.", L"Error", MB_OK);
 										}
 										else
-											::MessageBoxW(nullptr, L"Failed to commit a frame.", L"Error", MB_OK);
+											::MessageBoxW(nullptr, L"Failed to write pixels.", L"Error", MB_OK);
 									}
 									else
-										::MessageBoxW(nullptr, L"Failed to write pixels.", L"Error", MB_OK);
+										::MessageBoxW(nullptr, L"Failed to set the size of the frame.", L"Error", MB_OK);
 								}
 								else
 									::MessageBoxW(nullptr, L"8bit gray pixel format is not supported.", L"Error", MB_OK);
@@ -265,6 +270,20 @@ void GrayToBGR(const std::vector<float> &src, std::vector<unsigned char> &dst)
 		*it_dst++ = temp;
 		*it_dst++ = temp;
 		*it_dst++ = temp;
+	});
+}
+
+void GrayToBGR(const std::vector<unsigned char> &src, std::vector<unsigned char> &dst)
+{
+	if (dst.size() != (src.size() * 3))
+		dst.resize(src.size() * 3);
+
+	auto it_dst = dst.begin();
+	std::for_each(src.cbegin(), src.cend(), [&it_dst](unsigned char value)
+	{
+		*it_dst++ = value;
+		*it_dst++ = value;
+		*it_dst++ = value;
 	});
 }
 
@@ -388,9 +407,13 @@ void Test0(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 		// Load an image file.
 		std::wstring path_src = pathFolder + L"\\" + filename;
 		LoadImageFile(path_src, src_data, width, height, wicFactory);
+
+		// Export output
 		BGRAtoGray_(src_data, data);		
-		//GrayToBGR(data, out_temp);
-		//SaveImageFile(L"Test.bmp", out_temp, static_cast<unsigned int>(width), static_cast<unsigned int>(height), wicFactory);
+		GrayToBGR(data, out_temp);
+		std::wstring path_dst = ::PathFindFileNameW(filename.c_str());
+		path_dst += L"_.bmp";
+		SaveImageFile(path_dst, out_temp, static_cast<unsigned int>(width), static_cast<unsigned int>(height), wicFactory);
 	}
 }
 
@@ -402,6 +425,7 @@ void Test1(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 	::size_t width, height;
 	std::vector<unsigned char> src_data, dst;
 	std::vector<float> avg, std;
+	std::vector<unsigned char> out_temp;
 	for (const auto &filename : filenames)
 	{
 		// Load an image file.
@@ -419,6 +443,13 @@ void Test1(::IWICImagingFactory *wicFactory, const std::wstring &pathFolder, con
 		ComputeMean(buffer, avg);
 		ComputeStd(buffer, avg, std);
 		Mark(buffer.back(), avg, std, 3.5f, dst);
+
+		// Export output.
+		// TODO: Something is not right.
+		GrayToBGR(dst, out_temp);
+		std::wstring path_dst = ::PathFindFileNameW(filename.c_str());
+		path_dst += L"_.bmp";
+		SaveImageFile(path_dst, out_temp, static_cast<unsigned int>(width), static_cast<unsigned int>(height), wicFactory);
 	}
 
 }
